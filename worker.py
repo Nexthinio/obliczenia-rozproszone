@@ -104,4 +104,6 @@ def compute(task: Task):
         is_busy = False
         current_progress = total_rows  # 100%
 
+    print("DONE")
+
     return StreamingResponse(buf, media_type="image/png")
