@@ -65,6 +65,7 @@ def generate_fractal(size, progress_var, progress_label, canvas):
         }
         tasks.append(task)
 
+    start_time = time.time()
     all_tiles = []
     with ThreadPoolExecutor(max_workers=len(WORKERS)) as executor:
         futures = {}
@@ -99,6 +100,7 @@ def generate_fractal(size, progress_var, progress_label, canvas):
             completed = sum(1 for f in futures if f.done())
             time.sleep(1)
 
+        end_time_calculating = time.time()
         # odbieranie wyników
         for future in as_completed(futures):
             t = futures[future]
@@ -118,6 +120,7 @@ def generate_fractal(size, progress_var, progress_label, canvas):
 
     final_img.save("fraktale.png")
 
+    end_time_all = time.time()
     # wyświetlenie w GUI
     img_resized = final_img.resize((600, 600))
     img_tk = ImageTk.PhotoImage(img_resized)
@@ -125,7 +128,7 @@ def generate_fractal(size, progress_var, progress_label, canvas):
     canvas.image = img_tk
 
     progress_var.set(100)
-    progress_label.config(text="✅ Zakończono — obraz zapisany jako mandelbrot_distributed.png")
+    progress_label.config(text=f"✅ Zakończono — Czas bez generowania obrazu: {end_time_calculating - start_time:.2f}s, Czas całkowity: {end_time_all - start_time:.2f}s")
 
 # ==========================================
 # GUI

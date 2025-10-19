@@ -1,3 +1,5 @@
+import time
+
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Tuple
@@ -69,6 +71,7 @@ def compute(task: Task):
     global current_progress, total_rows, is_busy
     print("Otrzymano zadanie\n")
 
+    start_time = time.time()
     with progress_lock:
         current_progress = 0
         total_rows = task.height
@@ -104,6 +107,8 @@ def compute(task: Task):
         is_busy = False
         current_progress = total_rows  # 100%
 
-    print("DONE")
+    end_time = time.time()
+
+    print(f"Completed in {end_time - start_time:.2f}s")
 
     return StreamingResponse(buf, media_type="image/png")
