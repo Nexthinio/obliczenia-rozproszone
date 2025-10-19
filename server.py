@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
+
 import requests
 import random
 import time
@@ -8,19 +10,26 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 import tkinter as tk
 from tkinter import ttk, messagebox
+import queue
 
 # ==========================================
 # KONFIGURACJA
 # ==========================================
 WORKERS = [
-    {"name": "localhost", "url": "http://127.0.0.1:8000"},
-    {"name": "macbook", "url":  "http://192.168.18.39:8000"},
+    {"name": "localhost", "url": "http://127.0.0.1:8000/"},
+    {"name": "daniel", "url": "http://26.75.133.14:8000"},
+    {"name": "mati", "url": "http://26.244.65.123:8000"},
+    {"name": "mati2", "url": "http://26.69.88.88:8000"},
 ]
+
+finished = 0
 
 # ==========================================
 # FUNKCJA OBLICZENIOWA (SERWER)
 # ==========================================
 def generate_fractal(size, progress_var, progress_label, canvas):
+    global finished
+    finished = 0
     width = height = size
     zoom = random.uniform(0.5, 2)
     center_x = random.uniform(-0.7, 0.3)
@@ -32,7 +41,6 @@ def generate_fractal(size, progress_var, progress_label, canvas):
     x_max = center_x + scale
     y_min = center_y - scale
     y_max = center_y + scale
-    tile_h = height // len(WORKERS)
 
     print("==============================================")
     print(f"Size: {size}x{size}")
@@ -43,94 +51,108 @@ def generate_fractal(size, progress_var, progress_label, canvas):
     print(f"y_min: {y_min:.4f}, y_max: {y_max:.4f}")
     print("==============================================")
 
-    tasks = []
-    for i, worker in enumerate(WORKERS):
-        y1 = y_min + i * (y_max - y_min) / len(WORKERS)
-        y2 = y_min + (i + 1) * (y_max - y_min) / len(WORKERS)
+    # Generowanie bloków po 1000 pikseli
+    block_size = 500
+    if height > block_size * len(WORKERS):
+        blocks = []
+        current_y = 0
+        while current_y < height:
+            end_y = min(current_y + block_size, height)
+            blocks.append((current_y, end_y))
+            current_y = end_y
+    else:
+        tile_h = height // len(WORKERS)
+        blocks = [(i * tile_h, (i + 1) * tile_h) for i in range(len(WORKERS))]
 
-        task = {
-            "url": worker["url"] + "/compute",
-            "progress_url": worker["url"] + "/percentcomplete",
-            "data": {
-                "x_min": x_min,
-                "x_max": x_max,
-                "y_min": y1,
-                "y_max": y2,
-                "width": width,
-                "height": tile_h,
-                "max_iter": max_iter
-            },
-            "id": i,
-            "offset_y": i * tile_h,
-            "name": worker["name"]  # <-- dodajemy nazwę
-        }
-        tasks.append(task)
+    all_tiles = []
+    worker_progresses = [0] * len(WORKERS)
+    block_map = [None] * len(WORKERS)  # który blok aktualnie robi worker
 
     start_time = time.time()
-    all_tiles = []
-    with ThreadPoolExecutor(max_workers=len(WORKERS)) as executor:
-        futures = {}
-        for t in tasks:
-            future = executor.submit(requests.post, t["url"], json=t["data"])
-            futures[future] = t
 
-        # inicjalizacja listy z ostatnim postępem dla każdego workera
-        worker_progresses = [0] * len(WORKERS)
+    def worker_task(worker_idx, y_start, y_end):
+        global finished
+        y1 = y_min + (y_start / height) * (y_max - y_min)
+        y2 = y_min + (y_end / height) * (y_max - y_min)
+        data = {
+            "x_min": x_min,
+            "x_max": x_max,
+            "y_min": y1,
+            "y_max": y2,
+            "width": width,
+            "height": y_end - y_start,
+            "max_iter": max_iter
+        }
+        url = WORKERS[worker_idx]["url"] + "/compute"
+        offset_y = y_start
+        name = WORKERS[worker_idx]["name"]
 
-        # monitorowanie postępu
-        completed = 0
-        total = len(WORKERS)
-        while completed < total:
-            for idx, t in enumerate(tasks):
-                try:
-                    r = requests.get(t["progress_url"], timeout=0.5)
-                    if r.status_code == 200:
-                        data = r.json()
-                        # aktualizujemy tylko jeśli endpoint odpowiada
-                        worker_progresses[idx] = data.get("progress", worker_progresses[idx])
-                except Exception:
-                    # jeśli worker nie odpowiada, zostawiamy ostatni postęp
-                    pass
-
-            # średnia po ostatnich znanych postępach
-            avg_progress = sum(worker_progresses) / len(worker_progresses)
-            progress_var.set(avg_progress)
-            progress_label.config(text=f"Postęp: {avg_progress:.2f}%")
+        try:
+            r = requests.post(url, json=data)
+            print(f"🚩 Wysłano request do {name}. Blok {y_start}-{y_end}")
+            r.raise_for_status()
+            img_part = Image.open(BytesIO(r.content)).convert("L")
+            all_tiles.append((offset_y, img_part))
+            print(f"✅ {name} skończył blok {y_start}-{y_end}")
+            finished += 1
+            progress_var.set((block_size * finished / height) * 100)
+            progress_label.config(text=f"Postęp: {progress_var.get():.2f}%")
             root.update_idletasks()
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Błąd od {name}: {e}")
 
-            completed = sum(1 for f in futures if f.done())
-            time.sleep(1)
+        return worker_idx
 
-        end_time_calculating = time.time()
-        # odbieranie wyników
-        for future in as_completed(futures):
-            t = futures[future]
-            try:
-                response = future.result()
-                response.raise_for_status()
+    with ThreadPoolExecutor(max_workers=len(WORKERS)) as executor:
+        remaining_blocks = blocks.copy()
+        futures = {}
 
-                img_part = Image.open(BytesIO(response.content)).convert("L")
-                all_tiles.append((t["offset_y"], img_part))
-                print(f"✅ Odpowiedź z {t['name']} (zadanie #{t['id']}) — OK, fragment {img_part.size}")
-            except Exception as e:
-                messagebox.showerror("Błąd", f"Błąd od {t['url']}: {e}")
+        # Przydziel pierwsze bloki do wszystkich workerów
+        for i, worker in enumerate(WORKERS):
+            if remaining_blocks:
+                y_start, y_end = remaining_blocks.pop(0)
+                block_map[i] = (y_start, y_end)
+                future = executor.submit(worker_task, i, y_start, y_end)
+                futures[future] = i
 
-    # składanie końcowego obrazu
+        # Monitorowanie i dynamiczne przydzielanie bloków
+        while futures:
+            for future in as_completed(list(futures.keys())):
+                worker_idx = futures.pop(future)
+                block_map[worker_idx] = None
+                worker_progresses[worker_idx] = 100
+
+                # Przydziel nowy blok, jeśli są
+                if remaining_blocks:
+                    y_start, y_end = remaining_blocks.pop(0)
+                    block_map[worker_idx] = (y_start, y_end)
+                    worker_progresses[worker_idx] = 0
+                    new_future = executor.submit(worker_task, worker_idx, y_start, y_end)
+                    futures[new_future] = worker_idx
+
+                # Aktualizacja progress bar
+                total_done = 0
+                for idx, block in enumerate(block_map):
+                    if block is not None:
+                        y_start, y_end = block
+                    else:
+                        total_done += 0
+
+    # Składanie obrazu
     final_img = Image.new("L", (width, height))
-    for offset_y, tile_img in all_tiles:
+    for offset_y, tile_img in sorted(all_tiles):
         final_img.paste(tile_img, (0, offset_y))
 
     final_img.save("fraktale.png")
 
-    end_time_all = time.time()
-    # wyświetlenie w GUI
     img_resized = final_img.resize((600, 600))
     img_tk = ImageTk.PhotoImage(img_resized)
     canvas.create_image(0, 0, anchor="nw", image=img_tk)
     canvas.image = img_tk
 
     progress_var.set(100)
-    progress_label.config(text=f"✅ Zakończono — Czas bez generowania obrazu: {end_time_calculating - start_time:.2f}s, Czas całkowity: {end_time_all - start_time:.2f}s")
+    progress_label.config(text=f"✅ Zakończono — Czas całkowity: {time.time() - start_time:.2f}s")
+
 
 # ==========================================
 # GUI

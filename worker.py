@@ -10,6 +10,8 @@ from PIL import Image
 from io import BytesIO
 from fastapi.responses import StreamingResponse
 import threading
+from numba import cuda, jit
+import numpy as np
 
 app = FastAPI()
 
@@ -51,6 +53,27 @@ def compute_row(args) -> List[Tuple[int, int, int]]:
         row_result.append((px, py, color))
     return row_result
 
+@cuda.jit
+def mandelbrot_kernel(x_min, x_max, y_min, y_max, width, height, max_iter, output):
+    px, py = cuda.grid(2)
+    if px >= width or py >= height:
+        return
+
+    x0 = x_min + (x_max - x_min) * px / width
+    y0 = y_min + (y_max - y_min) * py / height
+
+    x = 0.0
+    y = 0.0
+    iteration = 0
+    while (x*x + y*y <= 4.0) and (iteration < max_iter):
+        xtemp = x*x - y*y + x0
+        y = 2*x*y + y0
+        x = xtemp
+        iteration += 1
+
+    output[py, px] = int(255 * iteration / max_iter)
+
+
 
 @app.get("/test")
 def test():
@@ -77,28 +100,24 @@ def compute(task: Task):
         total_rows = task.height
         is_busy = True
 
-    xs = np.linspace(task.x_min, task.x_max, task.width)
-    ys = np.linspace(task.y_min, task.y_max, task.height)
-    args_list = [(py, y, xs, task.max_iter) for py, y in enumerate(ys)]
+    # Przygotowanie obrazu w GPU
+    output = np.zeros((task.height, task.width), dtype=np.uint8)
+    d_output = cuda.to_device(output)
 
-    results = []
-    with ProcessPoolExecutor() as executor:
-        futures = [executor.submit(compute_row, args) for args in args_list]
-        for f in as_completed(futures):
-            results.append(f.result())
-            with progress_lock:
-                current_progress += 1  # zwiększamy licznik o 1 wiersz
+    threadsperblock = (16, 16)
+    blockspergrid_x = (task.width + threadsperblock[0] - 1) // threadsperblock[0]
+    blockspergrid_y = (task.height + threadsperblock[1] - 1) // threadsperblock[1]
+    blockspergrid = (blockspergrid_x, blockspergrid_y)
 
-    # spłaszczamy wynik
-    flat_result = [pixel for row in results for pixel in row]
+    mandelbrot_kernel[blockspergrid, threadsperblock](task.x_min, task.x_max,
+                                                      task.y_min, task.y_max,
+                                                      task.width, task.height,
+                                                      task.max_iter,
+                                                      d_output)
+    d_output.copy_to_host(output)  # pobranie wyniku z GPU
 
     # Tworzymy obraz w pamięci
-    image_array = np.zeros((task.height, task.width), dtype=np.uint8)
-    for x, y, color in flat_result:
-        image_array[y, x] = color
-
-    img = Image.fromarray(image_array, mode='L')
-
+    img = Image.fromarray(output, mode='L')
     buf = BytesIO()
     img.save(buf, format='PNG')
     buf.seek(0)
@@ -108,7 +127,7 @@ def compute(task: Task):
         current_progress = total_rows  # 100%
 
     end_time = time.time()
-
     print(f"Completed in {end_time - start_time:.2f}s")
 
     return StreamingResponse(buf, media_type="image/png")
+
