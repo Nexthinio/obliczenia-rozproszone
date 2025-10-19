@@ -22,7 +22,7 @@ WORKERS = [
 # ==========================================
 def generate_fractal(size, progress_var, progress_label, canvas):
     width = height = size
-    zoom = 1
+    zoom = random.uniform(0.5, 2)
     center_x = random.uniform(-0.7, 0.3)
     center_y = random.uniform(-0.5, 0.5)
     max_iter = 100
@@ -33,6 +33,15 @@ def generate_fractal(size, progress_var, progress_label, canvas):
     y_min = center_y - scale
     y_max = center_y + scale
     tile_h = height // len(WORKERS)
+
+    print("==============================================")
+    print(f"Size: {size}x{size}")
+    print(f"Zoom: {zoom:.4f}")
+    print(f"Center: ({center_x:.4f}, {center_y:.4f})")
+    print(f"Max iterations: {max_iter}")
+    print(f"x_min: {x_min:.4f}, x_max: {x_max:.4f}")
+    print(f"y_min: {y_min:.4f}, y_max: {y_max:.4f}")
+    print("==============================================")
 
     tasks = []
     for i, worker in enumerate(WORKERS):
@@ -63,25 +72,29 @@ def generate_fractal(size, progress_var, progress_label, canvas):
             future = executor.submit(requests.post, t["url"], json=t["data"])
             futures[future] = t
 
+        # inicjalizacja listy z ostatnim postępem dla każdego workera
+        worker_progresses = [0] * len(WORKERS)
+
         # monitorowanie postępu
         completed = 0
         total = len(WORKERS)
         while completed < total:
-            progresses = []
-            for t in tasks:
+            for idx, t in enumerate(tasks):
                 try:
                     r = requests.get(t["progress_url"], timeout=0.5)
                     if r.status_code == 200:
                         data = r.json()
-                        progresses.append(data.get("progress", 0))
+                        # aktualizujemy tylko jeśli endpoint odpowiada
+                        worker_progresses[idx] = data.get("progress", worker_progresses[idx])
                 except Exception:
-                    progresses.append(0)
+                    # jeśli worker nie odpowiada, zostawiamy ostatni postęp
+                    pass
 
-            if progresses:
-                avg_progress = sum(progresses) / len(progresses)
-                progress_var.set(avg_progress)
-                progress_label.config(text=f"Postęp: {avg_progress:.2f}%")
-                root.update_idletasks()
+            # średnia po ostatnich znanych postępach
+            avg_progress = sum(worker_progresses) / len(worker_progresses)
+            progress_var.set(avg_progress)
+            progress_label.config(text=f"Postęp: {avg_progress:.2f}%")
+            root.update_idletasks()
 
             completed = sum(1 for f in futures if f.done())
             time.sleep(1)
@@ -103,7 +116,7 @@ def generate_fractal(size, progress_var, progress_label, canvas):
     for offset_y, tile_img in all_tiles:
         final_img.paste(tile_img, (0, offset_y))
 
-    final_img.save("mandelbrot_distributed.png")
+    final_img.save("fraktale.png")
 
     # wyświetlenie w GUI
     img_resized = final_img.resize((600, 600))

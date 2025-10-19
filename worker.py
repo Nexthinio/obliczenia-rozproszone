@@ -67,7 +67,7 @@ def timeleft():
 @app.post("/compute")
 def compute(task: Task):
     global current_progress, total_rows, is_busy
-    print("Otrzymano zadanie")
+    print("Otrzymano zadanie\n")
 
     with progress_lock:
         current_progress = 0
