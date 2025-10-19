@@ -13,8 +13,8 @@ from tkinter import ttk, messagebox
 # KONFIGURACJA
 # ==========================================
 WORKERS = [
-    "http://127.0.0.1:8000",
-    "http://192.168.18.39:8000",
+    {"name": "localhost", "url": "http://127.0.0.1:8000"},
+    {"name": "macbook", "url":  "http://192.168.18.39:8000"},
 ]
 
 # ==========================================
@@ -49,8 +49,8 @@ def generate_fractal(size, progress_var, progress_label, canvas):
         y2 = y_min + (i + 1) * (y_max - y_min) / len(WORKERS)
 
         task = {
-            "url": worker + "/compute",
-            "progress_url": worker + "/percentcomplete",
+            "url": worker["url"] + "/compute",
+            "progress_url": worker["url"] + "/percentcomplete",
             "data": {
                 "x_min": x_min,
                 "x_max": x_max,
@@ -61,7 +61,8 @@ def generate_fractal(size, progress_var, progress_label, canvas):
                 "max_iter": max_iter
             },
             "id": i,
-            "offset_y": i * tile_h
+            "offset_y": i * tile_h,
+            "name": worker["name"]  # <-- dodajemy nazwę
         }
         tasks.append(task)
 
@@ -110,6 +111,7 @@ def generate_fractal(size, progress_var, progress_label, canvas):
 
                 img_part = Image.open(BytesIO(response.content)).convert("L")
                 all_tiles.append((t["offset_y"], img_part))
+                print(f"✅ Odpowiedź z {t['name']} (zadanie #{t['id']}) — OK, fragment {img_part.size}")
             except Exception as e:
                 messagebox.showerror("Błąd", f"Błąd od {t['url']}: {e}")
 
