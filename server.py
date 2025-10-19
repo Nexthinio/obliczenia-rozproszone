@@ -16,10 +16,10 @@ import queue
 # KONFIGURACJA
 # ==========================================
 WORKERS = [
-    {"name": "localhost", "url": "http://127.0.0.1:8000/"},
+    {"name": "localhost", "url": "http://127.0.0.1:8000"},
     {"name": "daniel", "url": "http://26.75.133.14:8000"},
-    {"name": "mati", "url": "http://26.244.65.123:8000"},
-    {"name": "mati2", "url": "http://26.69.88.88:8000"},
+    {"name": "mati laptop", "url": "http://26.244.65.123:8000"},
+    {"name": "mati komp", "url": "http://26.69.88.88:8000"},
 ]
 
 finished = 0
