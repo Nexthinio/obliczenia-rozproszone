@@ -1,12 +1,15 @@
 import time
-import threading
-from io import BytesIO
 
 from fastapi import FastAPI
 from pydantic import BaseModel
-from fastapi.responses import StreamingResponse
-import cupy as cp
+from typing import List, Tuple
+import numpy as np
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from tqdm import tqdm
 from PIL import Image
+from io import BytesIO
+from fastapi.responses import StreamingResponse
+import threading
 
 app = FastAPI()
 
@@ -15,7 +18,7 @@ app = FastAPI()
 # =============================
 progress_lock = threading.Lock()
 current_progress = 0
-total_rows = 1
+total_rows = 1  # żeby uniknąć dzielenia przez zero
 is_busy = False
 
 
@@ -29,13 +32,33 @@ class Task(BaseModel):
     max_iter: int
 
 
+def mandelbrot(x: float, y: float, max_iter: int) -> int:
+    c = complex(x, y)
+    z = 0
+    for i in range(max_iter):
+        z = z * z + c
+        if abs(z) > 2:
+            return i
+    return max_iter
+
+
+def compute_row(args) -> List[Tuple[int, int, int]]:
+    py, y, xs, max_iter = args
+    row_result = []
+    for px, x in enumerate(xs):
+        i = mandelbrot(x, y, max_iter)
+        color = int(255 * i / max_iter)
+        row_result.append((px, py, color))
+    return row_result
+
+
 @app.get("/test")
 def test():
     return {"message": "Test działa poprawnie"}
 
 
 @app.get("/percentcomplete")
-def percent_complete():
+def timeleft():
     """Zwraca procent ukończenia aktualnego zadania."""
     with progress_lock:
         percent = (current_progress / total_rows) * 100
@@ -46,53 +69,46 @@ def percent_complete():
 @app.post("/compute")
 def compute(task: Task):
     global current_progress, total_rows, is_busy
-
     print("Otrzymano zadanie\n")
-    start_time = time.time()
 
+    start_time = time.time()
     with progress_lock:
         current_progress = 0
         total_rows = task.height
         is_busy = True
 
-    # Tworzymy siatki współrzędnych na GPU
-    xs = cp.linspace(task.x_min, task.x_max, task.width)
-    ys = cp.linspace(task.y_min, task.y_max, task.height)
-    xs_grid, ys_grid = cp.meshgrid(xs, ys)
+    xs = np.linspace(task.x_min, task.x_max, task.width)
+    ys = np.linspace(task.y_min, task.y_max, task.height)
+    args_list = [(py, y, xs, task.max_iter) for py, y in enumerate(ys)]
 
-    # Przygotowanie wyniku
-    output = cp.zeros((task.height, task.width), dtype=cp.uint8)
+    results = []
+    with ProcessPoolExecutor() as executor:
+        futures = [executor.submit(compute_row, args) for args in args_list]
+        for f in as_completed(futures):
+            results.append(f.result())
+            with progress_lock:
+                current_progress += 1  # zwiększamy licznik o 1 wiersz
 
-    # Funkcja wektorowa dla GPU
-    for py in range(task.height):
-        x_row = xs_grid[py, :]
-        y_val = ys_grid[py, 0]
-        z = cp.zeros_like(x_row, dtype=cp.complex128)
-        c = x_row + 1j * y_val
-        count = cp.zeros_like(x_row, dtype=cp.int32)
+    # spłaszczamy wynik
+    flat_result = [pixel for row in results for pixel in row]
 
-        for i in range(task.max_iter):
-            mask = cp.abs(z) <= 2
-            z[mask] = z[mask] ** 2 + c[mask]
-            count[mask] += 1
+    # Tworzymy obraz w pamięci
+    image_array = np.zeros((task.height, task.width), dtype=np.uint8)
+    for x, y, color in flat_result:
+        image_array[y, x] = color
 
-        output[py, :] = cp.floor(255 * count / task.max_iter).astype(cp.uint8)
+    img = Image.fromarray(image_array, mode='L')
 
-        # Aktualizacja postępu co wiersz
-        with progress_lock:
-            current_progress += 1
-
-    # Konwersja do NumPy (CPU) i zapis do PNG
-    img = Image.fromarray(cp.asnumpy(output), mode='L')
     buf = BytesIO()
     img.save(buf, format='PNG')
     buf.seek(0)
 
     with progress_lock:
         is_busy = False
-        current_progress = total_rows
+        current_progress = total_rows  # 100%
 
     end_time = time.time()
+
     print(f"Completed in {end_time - start_time:.2f}s")
 
     return StreamingResponse(buf, media_type="image/png")
