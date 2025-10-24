@@ -1,31 +1,26 @@
 import threading
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing
-import requests
-import random
 import time
-from PIL import Image, ImageTk
+import random
+from queue import Queue
 from io import BytesIO
+from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import ttk, messagebox
+import requests
 
 # ==========================================
-# KONFIGURACJA
+# KONFIGURACJA WORKERÓW
 # ==========================================
 WORKERS = [
-    {"name": "localhost", "url": "http://127.0.0.1:8000"},
-    {"name": "daniel", "url": "http://26.75.133.14:8000"},
-    #{"name": "mati komp", "url": "http://26.244.65.123:8000"},
-    #{"name": "mati laptop", "url": "http://26.69.88.88:8000"},
+    {"name": "PC", "url": "http://127.0.0.1:8000"},
+    {"name": "laptop", "url": "http://192.168.100.28:8000"},
 ]
 
-finished = multiprocessing.Value('i', 0)  # współdzielony licznik zakończonych bloków
-
 # ==========================================
-# FUNKCJA OBLICZENIOWA (SERWER)
+# FUNKCJA WYŚWIETLANIA BLOKU OBLICZEŃ
 # ==========================================
 def worker_task(worker_idx, y_start, y_end, width, height, x_min, x_max, y_min, y_max, max_iter):
-    """Funkcja wykonywana w osobnym procesie"""
+    """Wysyła blok do worker'a i odbiera wynik"""
     start_time = time.time()
     y1 = y_min + (y_start / height) * (y_max - y_min)
     y2 = y_min + (y_end / height) * (y_max - y_min)
@@ -49,13 +44,14 @@ def worker_task(worker_idx, y_start, y_end, width, height, x_min, x_max, y_min, 
         img_part = Image.open(BytesIO(r.content)).convert("L")
         end_time = time.time()
         print(f"✅ {name} skończył blok {y_start}-{y_end} w {end_time - start_time:.2f}s")
-        with finished.get_lock():
-            finished.value += 1
         return (offset_y, img_part)
     except Exception as e:
         print(f"❌ Błąd od {name}: {e}")
         return None
 
+# ==========================================
+# FUNKCJA GENERUJĄCA FRAKTAL
+# ==========================================
 def generate_fractal(size, progress_var, progress_label, canvas):
     full_start_time = time.time()
     width = height = size
@@ -79,54 +75,54 @@ def generate_fractal(size, progress_var, progress_label, canvas):
     print(f"y_min: {y_min:.4f}, y_max: {y_max:.4f}")
     print("==============================================")
 
-    # Generowanie bloków po 500 pikseli
+    # Tworzenie bloków
     block_size = 1000
-    if height > block_size * len(WORKERS):
-        blocks = []
-        current_y = 0
-        while current_y < height:
-            end_y = min(current_y + block_size, height)
-            blocks.append((current_y, end_y))
-            current_y = end_y
-    else:
-        tile_h = height // len(WORKERS)
-        blocks = [(i * tile_h, (i + 1) * tile_h) for i in range(len(WORKERS))]
+    blocks = []
+    current_y = 0
+    while current_y < height:
+        end_y = min(current_y + block_size, height)
+        blocks.append((current_y, end_y))
+        current_y = end_y
+
+    # Kolejka zadań
+    task_queue = Queue()
+    for block in blocks:
+        task_queue.put(block)
 
     all_tiles = []
+    all_tiles_lock = threading.Lock()
+    finished_count = 0
 
-    with ProcessPoolExecutor(max_workers=len(WORKERS)) as executor:
-        remaining_blocks = blocks.copy()
-        futures = {}
-
-        # Przydziel pierwsze bloki do wszystkich workerów
-        for i, worker in enumerate(WORKERS):
-            if remaining_blocks:
-                y_start, y_end = remaining_blocks.pop(0)
-                future = executor.submit(worker_task, i, y_start, y_end,
-                                         width, height, x_min, x_max, y_min, y_max, max_iter)
-                futures[future] = i
-
-        # Monitorowanie i dynamiczne przydzielanie bloków
-        while futures:
-            for future in as_completed(list(futures.keys())):
-                worker_idx = futures.pop(future)
-                result = future.result()
-                if result:
+    # Funkcja wątku dla worker'a
+    def worker_loop(worker_idx):
+        nonlocal finished_count
+        while not task_queue.empty():
+            try:
+                y_start, y_end = task_queue.get_nowait()
+            except:
+                break
+            result = worker_task(worker_idx, y_start, y_end,
+                                 width, height, x_min, x_max, y_min, y_max, max_iter)
+            if result:
+                with all_tiles_lock:
                     all_tiles.append(result)
+                    finished_count += 1
+                    progress_var.set((finished_count * block_size / height) * 100)
+                    progress_label.config(text=f"Postęp: {progress_var.get():.2f}%")
+                    canvas.update_idletasks()
 
-                # Przydziel nowy blok, jeśli są
-                if remaining_blocks:
-                    y_start, y_end = remaining_blocks.pop(0)
-                    new_future = executor.submit(worker_task, worker_idx, y_start, y_end,
-                                                 width, height, x_min, x_max, y_min, y_max, max_iter)
-                    futures[new_future] = worker_idx
+    # Start wątków – jeden na każdego worker’a fizycznego
+    threads = []
+    for i in range(len(WORKERS)):
+        t = threading.Thread(target=worker_loop, args=(i,), daemon=True)
+        t.start()
+        threads.append(t)
 
-                # Aktualizacja paska postępu
-                progress_var.set((finished.value * block_size / height) * 100)
-                progress_label.config(text=f"Postęp: {progress_var.get():.2f}%")
-                canvas.update_idletasks()
+    # Czekamy na wszystkie wątki
+    for t in threads:
+        t.join()
 
-    # Składanie obrazu
+    # Składanie finalnego obrazu
     final_img = Image.new("L", (width, height))
     for offset_y, tile_img in sorted(all_tiles):
         final_img.paste(tile_img, (0, offset_y))
@@ -140,7 +136,6 @@ def generate_fractal(size, progress_var, progress_label, canvas):
 
     progress_var.set(100)
     progress_label.config(text=f"✅ Zakończono — Czas całkowity: {time.time() - full_start_time:.2f}s")
-
 
 # ==========================================
 # GUI

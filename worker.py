@@ -1,5 +1,5 @@
-import time
 import threading
+import time
 from io import BytesIO
 
 from fastapi import FastAPI
@@ -36,7 +36,6 @@ def test():
 
 @app.get("/percentcomplete")
 def percent_complete():
-    """Zwraca procent ukończenia aktualnego zadania."""
     with progress_lock:
         percent = (current_progress / total_steps) * 100
         status = "busy" if is_busy else "idle"
@@ -59,26 +58,25 @@ def compute(task: Task):
     xs = cp.linspace(task.x_min, task.x_max, task.width)
     ys = cp.linspace(task.y_min, task.y_max, task.height)
     xs_grid, ys_grid = cp.meshgrid(xs, ys)
-
-    # Przygotowanie zmiennych
-    z = cp.zeros_like(xs_grid, dtype=cp.complex128)
     c = xs_grid + 1j * ys_grid
-    count = cp.zeros_like(xs_grid, dtype=cp.int32)
 
-    # Wektorowa pętla po iteracjach
+    # Mandelbrot na GPU, w pełni wektorowo
+    z = cp.zeros_like(c, dtype=cp.complex128)
+    count = cp.zeros(c.shape, dtype=cp.int32)
+
     for i in range(task.max_iter):
         mask = cp.abs(z) <= 2
-        z[mask] = z[mask] ** 2 + c[mask]
+        z[mask] = z[mask]**2 + c[mask]
         count[mask] += 1
 
-        # Aktualizacja postępu co ~1% iteracji
+        # aktualizacja postępu co ~1%
         if (i % max(1, task.max_iter // 100)) == 0:
             with progress_lock:
                 current_progress = i + 1
 
     output = cp.floor(255 * count / task.max_iter).astype(cp.uint8)
 
-    # Konwersja do NumPy (CPU) i zapis do PNG
+    # Konwersja do CPU i zapis do PNG
     img = Image.fromarray(cp.asnumpy(output), mode='L')
     buf = BytesIO()
     img.save(buf, format='PNG')
