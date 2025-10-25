@@ -125,13 +125,12 @@ Size: 8000x8000
 Zoom: 1.4729
 Center: (-0.3145, 0.1213)
 Max iterations: 100
-```
-
 Wysłano request do PC. Blok 0-1000
 Wysłano request do laptop. Blok 1000-2000
 PC skończył blok 0-1000 w 2.54s
 laptop skończył blok 1000-2000 w 3.01s
 Zakończono — Całkowity czas: 12.37s
+```
 ---
 ### 🧪 Testowanie
 Możesz sprawdzić połączenie z workerem:
