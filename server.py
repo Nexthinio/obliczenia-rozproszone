@@ -119,6 +119,7 @@ def generate_fractal(size, progress_var, progress_label, canvas):
     canvas.create_image(0, 0, anchor="nw", image=img_tk)
     canvas.image = img_tk
 
+    start_button.config(state="normal")
     progress_var.set(100)
     progress_label.config(text=f"Zakończono — Całkowity czas: {time.time() - full_start_time:.2f}s")
 
@@ -132,6 +133,7 @@ def start_computation():
         messagebox.showerror("Błąd", "Podaj poprawny rozmiar (liczba całkowita > 100)")
         return
 
+    start_button.config(state="disabled")
     progress_var.set(0)
     progress_label.config(text="Postęp: 0.00%")
     threading.Thread(target=generate_fractal, args=(size, progress_var, progress_label, canvas), daemon=True).start()
@@ -145,7 +147,8 @@ if __name__ == "__main__":
     size_entry.insert(0, "8000")
     size_entry.pack(pady=5)
 
-    ttk.Button(root, text="Start", command=start_computation).pack(pady=10)
+    start_button = ttk.Button(root, text="Start", command=start_computation)
+    start_button.pack(pady=10)
 
     progress_var = tk.DoubleVar()
     progress_bar = ttk.Progressbar(root, variable=progress_var, maximum=100, length=400)
