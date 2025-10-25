@@ -120,6 +120,7 @@ def generate_fractal(size, progress_var, progress_label, canvas):
     canvas.image = img_tk
 
     start_button.config(state="normal")
+    start_button.config(text="Start")
     progress_var.set(100)
     progress_label.config(text=f"Zakończono — Całkowity czas: {time.time() - full_start_time:.2f}s")
 
@@ -134,6 +135,7 @@ def start_computation():
         return
 
     start_button.config(state="disabled")
+    start_button.config(text="In progress...")
     progress_var.set(0)
     progress_label.config(text="Postęp: 0.00%")
     threading.Thread(target=generate_fractal, args=(size, progress_var, progress_label, canvas), daemon=True).start()
