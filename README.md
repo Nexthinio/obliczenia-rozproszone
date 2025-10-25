@@ -92,7 +92,8 @@ Dodaj tu wszystkie serwery, które chcesz wykorzystać.
 ```bash
 python server.py
 ```
-🧠 Zasada działania
+---
+### 🧠 Zasada działania
 Klient dzieli obraz na bloki pionowe
 
 Worker zwraca gotowy fragment obrazu PNG
@@ -101,21 +102,24 @@ Klient scala wszystkie części w końcowy obraz fraktale.png
 
 Postęp i czas obliczeń są wyświetlane w GUI
 
-🧵 Wielowątkowość i rozproszenie
+---
+### 🧵 Wielowątkowość i rozproszenie
 Każdy worker działa niezależnie
 
 Klient uruchamia osobny wątek dla każdego serwera
 
 Dzięki temu można łączyć moc kilku komputerów (CPU + GPU) w jednej sieci
 
-📸 Wynik
+---
+### 📸 Wynik
 Wygenerowany obraz zostaje zapisany jako:
 ```bash
 fraktale.png
 ```
 oraz wyświetlony w GUI w rozdzielczości 600x600.
 
-🧰 Przykładowy wynik logów
+---
+### 🧰 Przykładowy wynik logów
 ```yaml
 Size: 8000x8000
 Zoom: 1.4729
@@ -128,7 +132,8 @@ Wysłano request do laptop. Blok 1000-2000
 PC skończył blok 0-1000 w 2.54s
 laptop skończył blok 1000-2000 w 3.01s
 Zakończono — Całkowity czas: 12.37s
-🧪 Testowanie
+---
+### 🧪 Testowanie
 Możesz sprawdzić połączenie z workerem:
 
 ```bash
