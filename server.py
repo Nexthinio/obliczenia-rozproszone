@@ -8,19 +8,12 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import requests
 
-# ==========================================
-# KONFIGURACJA WORKERÓW
-# ==========================================
 WORKERS = [
     {"name": "PC", "url": "http://127.0.0.1:8000"},
     {"name": "laptop", "url": "http://192.168.100.28:8000"},
 ]
 
-# ==========================================
-# FUNKCJA WYŚWIETLANIA BLOKU OBLICZEŃ
-# ==========================================
 def worker_task(worker_idx, y_start, y_end, width, height, x_min, x_max, y_min, y_max, max_iter):
-    """Wysyła blok do worker'a i odbiera wynik"""
     start_time = time.time()
     y1 = y_min + (y_start / height) * (y_max - y_min)
     y2 = y_min + (y_end / height) * (y_max - y_min)
@@ -39,19 +32,17 @@ def worker_task(worker_idx, y_start, y_end, width, height, x_min, x_max, y_min, 
 
     try:
         r = requests.post(url, json=data)
-        print(f"🚩 Wysłano request do {name}. Blok {y_start}-{y_end}")
+        print(f"Wysłano request do {name}. Blok {y_start}-{y_end}")
         r.raise_for_status()
         img_part = Image.open(BytesIO(r.content)).convert("L")
         end_time = time.time()
-        print(f"✅ {name} skończył blok {y_start}-{y_end} w {end_time - start_time:.2f}s")
+        print(f"{name} skończył blok {y_start}-{y_end} w {end_time - start_time:.2f}s")
         return (offset_y, img_part)
     except Exception as e:
-        print(f"❌ Błąd od {name}: {e}")
+        print(f"Błąd od {name}: {e}")
         return None
 
-# ==========================================
-# FUNKCJA GENERUJĄCA FRAKTAL
-# ==========================================
+#generowanie fraktala
 def generate_fractal(size, progress_var, progress_label, canvas):
     full_start_time = time.time()
     width = height = size
@@ -75,7 +66,6 @@ def generate_fractal(size, progress_var, progress_label, canvas):
     print(f"y_min: {y_min:.4f}, y_max: {y_max:.4f}")
     print("==============================================")
 
-    # Tworzenie bloków
     block_size = 1000
     blocks = []
     current_y = 0
@@ -84,7 +74,6 @@ def generate_fractal(size, progress_var, progress_label, canvas):
         blocks.append((current_y, end_y))
         current_y = end_y
 
-    # Kolejka zadań
     task_queue = Queue()
     for block in blocks:
         task_queue.put(block)
@@ -93,7 +82,6 @@ def generate_fractal(size, progress_var, progress_label, canvas):
     all_tiles_lock = threading.Lock()
     finished_count = 0
 
-    # Funkcja wątku dla worker'a
     def worker_loop(worker_idx):
         nonlocal finished_count
         while not task_queue.empty():
@@ -111,18 +99,15 @@ def generate_fractal(size, progress_var, progress_label, canvas):
                     progress_label.config(text=f"Postęp: {progress_var.get():.2f}%")
                     canvas.update_idletasks()
 
-    # Start wątków – jeden na każdego worker’a fizycznego
     threads = []
     for i in range(len(WORKERS)):
         t = threading.Thread(target=worker_loop, args=(i,), daemon=True)
         t.start()
         threads.append(t)
 
-    # Czekamy na wszystkie wątki
     for t in threads:
         t.join()
 
-    # Składanie finalnego obrazu
     final_img = Image.new("L", (width, height))
     for offset_y, tile_img in sorted(all_tiles):
         final_img.paste(tile_img, (0, offset_y))
@@ -135,18 +120,16 @@ def generate_fractal(size, progress_var, progress_label, canvas):
     canvas.image = img_tk
 
     progress_var.set(100)
-    progress_label.config(text=f"✅ Zakończono — Czas całkowity: {time.time() - full_start_time:.2f}s")
+    progress_label.config(text=f"Zakończono — Całkowity czas: {time.time() - full_start_time:.2f}s")
 
-# ==========================================
-# GUI
-# ==========================================
+#gui
 def start_computation():
     try:
         size = int(size_entry.get())
         if size < 100:
             raise ValueError
     except ValueError:
-        messagebox.showerror("Błąd", "Podaj poprawny rozmiar (liczba całkowita > 100).")
+        messagebox.showerror("Błąd", "Podaj poprawny rozmiar (liczba całkowita > 100)")
         return
 
     progress_var.set(0)

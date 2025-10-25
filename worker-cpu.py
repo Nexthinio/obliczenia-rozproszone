@@ -12,12 +12,9 @@ import threading
 
 app = FastAPI()
 
-# =============================
-# GLOBALNE ZMIENNE DO POSTĘPU
-# =============================
 progress_lock = threading.Lock()
 current_progress = 0
-total_rows = 1  # żeby uniknąć dzielenia przez zero
+total_rows = 1
 is_busy = False
 
 
@@ -55,10 +52,9 @@ def compute_row(args) -> List[Tuple[int, int, int]]:
 def test():
     return {"message": "Test działa poprawnie"}
 
-
+#obsolete
 @app.get("/percentcomplete")
 def timeleft():
-    """Zwraca procent ukończenia aktualnego zadania."""
     with progress_lock:
         percent = (current_progress / total_rows) * 100
         status = "busy" if is_busy else "idle"
