@@ -111,7 +111,7 @@ Klient uruchamia osobny wątek dla każdego serwera
 Dzięki temu można łączyć moc kilku komputerów (CPU + GPU) w jednej sieci
 
 ---
-### 📸 Wynik
+## 📸 Wynik
 Wygenerowany obraz zostaje zapisany jako:
 ```bash
 fraktale.png
@@ -132,7 +132,7 @@ laptop skończył blok 1000-2000 w 3.01s
 Zakończono — Całkowity czas: 12.37s
 ```
 ---
-### 🧪 Testowanie
+## 🧪 Testowanie
 Możesz sprawdzić połączenie z workerem:
 
 ```bash
